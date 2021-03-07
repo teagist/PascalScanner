@@ -13,6 +13,8 @@
 * 
 *	 Programmed by: Houston Brown
 *	 Date Last Updated: 4/5/2020
+*
+*	Now on GitHub 
 */
 
 #include <stdio.h>
