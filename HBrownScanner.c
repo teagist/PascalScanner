@@ -4,25 +4,27 @@
 *	 
 *	 Scanner for Simplified Pascal Programming Language
 *
-*	     This program will open a file for reading.  Once the file is open
-*    each line will be stored into a structure for scanning.  The line will
-*	 then be scanned and each token will be stored in another structure and 
-*	 checked for valididty.  Finally, the line numbers will be displayed 
-*	 along with the token numbers associated with reserved words, symbols, and 
-*	 identifiers.
+*	     This program will open a file for reading that will be entered by the 
+*	 user.  Once the file is open each line will be stored into a structure 
+*	 for scanning.  The line will then be scanned and each token will be stored 
+*	 in another structure and checked for valididty.  Program identifiers will
+*	 be stored in a symbol table using hashing.  The maximum size of the table
+*	 will be 32.  Finally, the line numbers will be displayed along with the 
+*	 token numbers associated with reserved words, symbols, and identifiers.
 * 
 *	 Programmed by: Houston Brown
 *	 Date Last Updated: 4/5/2020
-*
-*	Now on GitHub 
 */
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 #define Line_Max 81
 #define Token_Max 13
 #define File_Max 100
+#define Size 32
 
 
 /*---------------------------------------------------------------------------*/
@@ -43,16 +45,22 @@ struct Token
 };
 
 
+struct hashTable
+{
+	char symTable[Size][Token_Max];
+	int numEntries;
+	bool afterBegin;
+};
+/*---------------------------------------------------------------------------*/
+
+
 /*---------------------------------------------------------------------------*/
 /* Function Declarations */
 
 FILE* openFile(FILE * filePtr_p);
 
-struct Line * initLine(struct Line prgLine);
-
-struct Token * initToken(struct Token prgToken);
-
-void getToken(FILE * filePtr_p, struct Line * prgLine_p);
+void getToken(FILE * filePtr_p, struct Line * prgLine_p, 
+			  struct hashTable * myTable);
 
 void readSpace(struct Line * prgLine_p, struct Token * tknPtr_p);
 
@@ -73,11 +81,26 @@ void readMinus(struct Line * prgLine_p, struct Token * tknPtr_p);
 
 void readStar(struct Line * prgLine_p, struct Token * tknPtr_p);
 
-void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p);
+void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p, 
+				  struct hashTable * myTable_p);
 
-void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p);
+void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p, 
+					  struct hashTable * myTable_p);
 
 void commentMode(FILE * filePtr, struct Line * prgLine_p);
+
+int getHash(char id[]);
+
+void hashInsert(char id[], struct hashTable * myTable_p);
+
+int hashSearch(char id[], struct hashTable * myTable_p);
+
+void printTable(struct hashTable * myTable_p);
+
+void buildId(struct Line * progLine_p, struct hashTable * myTable_p);
+/*---------------------------------------------------------------------------*/
+
+
 
 
 /*---------------------------------------------------------------------------*/
@@ -85,18 +108,25 @@ void commentMode(FILE * filePtr, struct Line * prgLine_p);
 
 int main(void)
 {
-	FILE        * filePtr_p = openFile(filePtr_p);
-	struct Line   progLine;			
-	struct Line * linePtr_p = initLine(progLine);
+	FILE             * filePtr_p = openFile(filePtr_p);
+	
+	struct Line        progLine;			
+	struct Line      * linePtr_p = &progLine;
+	
+	struct hashTable   myTable;
+	myTable.afterBegin = false;
+	struct hashTable * symbolTable = &myTable;
 
 	printf("Line\t\t Token Type\t\t Token Specifier\n");    /* Header */
 	
-	while (!feof(filePtr_p))								// Need to output the token numbers here
+	while (!feof(filePtr_p))
 	{
-		getToken(filePtr_p, linePtr_p);
+		fgets(linePtr_p->line, Line_Max, filePtr_p);
+		getToken(filePtr_p, linePtr_p, symbolTable);
 		memset(linePtr_p->line, ' ', sizeof(linePtr_p->line));
 	}
 
+	printTable(symbolTable);
 	fclose(filePtr_p);
 	return 0;
 }
@@ -122,7 +152,8 @@ FILE* openFile(FILE * filePtr_p)
 	memset(fileName, ' ', File_Max);
 	
 	printf("Please enter the name of the file that you wish to scan followed");
-	printf(" by the extension\n");
+	printf(" by the file extension\n");
+	
 	gets(fileName);
 	printf("\n\n");
 	
@@ -136,21 +167,6 @@ FILE* openFile(FILE * filePtr_p)
 	
 	return filePtr_p;
 }
-
-
-struct Line * initLine(struct Line prgLine)
-{
-	return &prgLine;
-}
-
-
-struct Token * initToken(struct Token prgToken)
-{
-	prgToken.tknIdx = 0;  
-	memset(prgToken.token, ' ', sizeof(prgToken.token) + 1);
-	return &prgToken;
-}
-
 
 /*---------------------------------------------------------------------------
 *	 Function: getToken
@@ -171,15 +187,18 @@ struct Token * initToken(struct Token prgToken)
 *	 Printing line number
 */
 
-void getToken(FILE * filePtr_p, struct Line * prgLine_p)
+void getToken(FILE * filePtr_p, struct Line * prgLine_p, 
+			  struct hashTable * myTable)
 {
-	fgets(prgLine_p->line, Line_Max, filePtr_p);
 	prgLine_p->lineNum = prgLine_p->lineNum + 1;
 	prgLine_p->lnIdx = 0;
 	printf("%d", prgLine_p->lineNum);		
 
-	struct Token   newToken;
-	struct Token * tokenPtr_p = initToken(newToken);
+	struct Token newToken;
+	newToken.tknIdx = 0;
+	memset(newToken.token, ' ', sizeof(newToken.token) + 1);
+	
+	struct Token * tokenPtr_p = &newToken;
 
 	/* Scan program line until end of line is reached */
 	while (prgLine_p->line[prgLine_p->lnIdx] != '\0')
@@ -232,7 +251,7 @@ void getToken(FILE * filePtr_p, struct Line * prgLine_p)
 				break;				
 
 			default:									
-				alphaLiteral(prgLine_p, tokenPtr_p);    
+				alphaLiteral(prgLine_p, tokenPtr_p, myTable);    
 				break;	
 		}    /* closing switch statement */
 	}    /* closing while loop */
@@ -529,17 +548,18 @@ void readStar(struct Line * prgLine_p, struct Token * tknPtr_p)
 *    if the entire token has been built, then printTokenNumber will be called
 */
 
-void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p)
+void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p, 
+				  struct hashTable * myTable_p)
 {
 	tknPtr_p->token[tknPtr_p->tknIdx] = prgLine_p->line[prgLine_p->lnIdx];
 	prgLine_p->lnIdx = prgLine_p->lnIdx + 1;
 	tknPtr_p->tknIdx = tknPtr_p->tknIdx + 1;
 	
-	if (prgLine_p->line[prgLine_p->lnIdx] == ' '|| 
-	    prgLine_p->line[prgLine_p->lnIdx] == ','|| 
+	if (prgLine_p->line[prgLine_p->lnIdx] == ' ' || 
+	    prgLine_p->line[prgLine_p->lnIdx] == ',' || 
 		prgLine_p->line[prgLine_p->lnIdx] == ';' || 
 		prgLine_p->line[prgLine_p->lnIdx] == '(' || 
-		prgLine_p->line[prgLine_p->lnIdx] == ')'|| 
+		prgLine_p->line[prgLine_p->lnIdx] == ')' || 
 		prgLine_p->line[prgLine_p->lnIdx] == '\n' || 
 		prgLine_p->line[prgLine_p->lnIdx] == '\0')
 	{
@@ -553,7 +573,7 @@ void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p)
 			tknPtr_p->token[index] = toupper(temp);
 			index = index + 1;
 		}	
-		printTokenNumber(prgLine_p, tknPtr_p);
+		printTokenNumber(prgLine_p, tknPtr_p, myTable_p);
 	}		
 }    /* closing alphaLiteral function */
 
@@ -578,7 +598,8 @@ void alphaLiteral(struct Line * prgLine_p, struct Token * tknPtr_p)
 *    c-string.
 */
 
-void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Shorten if possible, may need to split
+void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p,
+					  struct hashTable * myTable_p)
 {
 	char reserved[Token_Max - 1][Token_Max] = {"PROGRAM ", "VAR ", "BEGIN ", 
 												"END ", "END. ", "INTEGER ",
@@ -606,6 +627,7 @@ void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Sh
 	comparer = strncmp(tknPtr_p->token, reserved[2], 6);
 	if (comparer == 0)
 	{
+		myTable_p->afterBegin = true;
 		printf("\t\t   %d\n\n", 3);
 		return;
 	}
@@ -630,58 +652,16 @@ void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Sh
 	comparer = strncmp(tknPtr_p->token, reserved[5], 8);
 	if (comparer == 0)
 	{
-		int  lineIndex = 0;			// Make a function that will read them in using strtok
-		int  idIndex = 0;
-		char letter;
-		char identifier[Token_Max] = " ";
-		
-		/* Checking identifier lengths */
-		while (prgLine_p->line[lineIndex] != ':')
+		int index = 0;
+		while (index < Size)
 		{
-			if (prgLine_p->line[lineIndex] == ' ')    /* Reached end of Id */
-			{
-				lineIndex = lineIndex + 1;
-				idIndex = 0;
-				memset(identifier, ' ', sizeof(identifier));
-			}
-			
-			if (prgLine_p->line[lineIndex] == ',')    /* Reached end of Id */
-			{
-				lineIndex = lineIndex + 2;
-				idIndex = 0;
-				memset(identifier, ' ', sizeof(identifier));
-			}
-			
-			else    /* Building Id */
-			{
-				identifier[idIndex] = prgLine_p->line[lineIndex];
-
-				if (idIndex >= 13)    /* Found Id that is too long */
-				{
-					memset(identifier, ' ', sizeof(identifier));
-					
-					while (prgLine_p->line[lineIndex] != ' ' &&
-						   prgLine_p->line[lineIndex] != ',')
-					{
-						lineIndex = lineIndex + 1;	   	
-					}
-					
-				    lineIndex = lineIndex + 1;
-					idIndex = 0;
-					break;
-				}
-				
-				else
-				{
-					lineIndex = lineIndex + 1;
-					idIndex = idIndex + 1;
-				}				
-			}    /* closing building Id else */
-		}    /* closing while loop */
-		
+			memset(myTable_p->symTable[index], ' ', sizeof(tknPtr_p->token));
+			index = index + 1;
+		}
+		buildId(prgLine_p, myTable_p);
 		printf("\t\t   %d\n\n", 6); 
 		return;
-	}    /* closing if for INTEGER reserved word comparison */
+	}    
 	
 	/* FOR reserved word */ 
 	comparer = strncmp(tknPtr_p->token, reserved[6], 4);
@@ -730,7 +710,7 @@ void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Sh
 		if (prgLine_p->line[prgLine_p->lnIdx - 4] != ' ' &&
 		    prgLine_p->line[prgLine_p->lnIdx + 1] != ' ')
 		{
-			printf("Error: a space expected on either side of DIV operator");
+			printf("Error: a Space Expected on Either Side of DIV Operator");
 			printf("\n\n");
 		}
 		
@@ -741,14 +721,7 @@ void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Sh
 		}
 	}
 		
-	/*
-		If the token is not a reserved word, then here is where its 
-		token number is decided between a literal or an identifier.
-		This will also check for identifiers that are too long, and 
-		that are undeclared
 		
-		Make a function
-	*/		
 	else 
 	{
 		if (tknPtr_p->token[0] > 47 && tknPtr_p->token[0] < 58)
@@ -764,18 +737,22 @@ void printTokenNumber(struct Line * prgLine_p, struct Token * tknPtr_p)				// Sh
 			{
 				if (charCtr > 12 && printCtr == 0)    /* only prints once */
 				{
-					printf("Error: max identifier length exceeded ");
-					printf("%s\n\n", tknPtr_p->token);
+					printf("\nError: Max Identifier Length Exceeded ");
+					printf("'%s'\n\n", tknPtr_p->token);
 					printCtr = 1;
 				}
 				charCtr = charCtr + 1;
 			}
 			
+			if (hashSearch(tknPtr_p->token, myTable_p) == -1)
+			{
+				printf("\nError: Undeclared Identifier: %s\n\n", tknPtr_p->token);
+			}
 			printf("\t\t  %d\t\t\t  ^%.12s\n\n", 22, tknPtr_p->token);
 		}
 					
 		else 
-			printf("%s undeclared identifier\n\n", tknPtr_p);
+			printf("%s Invalid Symbol\n\n", tknPtr_p);
 			
 	}    /* closing outermost else clause */
 }    /* closing printTokenNumber function */
@@ -815,4 +792,200 @@ void commentMode(FILE * filePtr_p, struct Line * prgLine_p)
 		}
 	}
 	prgLine_p->lnIdx = prgLine_p->lnIdx + 1;
+}
+
+/*---------------------------------------------------------------------------
+*    Function getHash
+*    --------------------
+*
+*        If the identifier that is sent is NULL this function will return 0.
+*	 Else, this function will sum the ascii value of each letter of the 
+*	 identifier.  Then that hash will be computed by obtaining the 
+*	 remainder of the division of sum and the size of the table.
+*
+*	 id: character array containing a program identifier
+*
+*    Returns the hash of the program identifier
+*/
+
+int getHash(char id[])
+{    
+    int hash = 0;
+    int sum = 0;
+    int letter = 0;
+    int index = 0;
+    
+    if (id == NULL) 
+        return 0;
+ 
+    while (id[index] != '\0') 
+	{
+        letter = (int)id[index];
+        sum = sum + letter;
+        index = index + 1;
+    } 
+    
+    return hash = sum % Size;
+}
+
+/*---------------------------------------------------------------------------
+*    Function hashInsert
+*    --------------------
+*
+*        This function will begin by searching the hashTable for the 
+*	 identifier.  If the passed identifier is found, then an error will be
+*	 printed and the function will return to the caller.  Else, the hash of  
+*	 the identifier will be stored.  Then the location of the table at the 
+*	 hashed position will be checked.  If it is not empty, then the table will 
+*	 loop through the table until the next empty slot is found and insert the 
+*	 identifier.  If the hashed position is empty, then the identifier will be 
+*	 stored at that position in the hash table.  
+*
+*	 id: character array containing a program identifier
+*	 myTable_p: pointer to the symbol table structure 
+*
+*    Printing error message if the identifier is already in the table
+*	 or if the table is full	 
+*/
+
+void hashInsert(char id[], struct hashTable * myTable_p)
+{
+	if (myTable_p->numEntries == Size + 1)
+		printf("\n\nError :Maximum Amount of Identifiers Exceeded\n\n");
+
+	hashSearch(id, myTable_p);
+	
+	if (hashSearch(id, myTable_p) == -1)
+	{
+		printf("\nError: Duplicate Identifier %s\n\n", id);
+		return;
+	}
+	
+	int localHash = getHash(id);
+	int ctr = localHash;
+
+	if (myTable_p->symTable[localHash][0] > 64 &&
+		myTable_p->symTable[localHash][0] < 91)
+	{
+		while ((myTable_p->symTable[ctr][0] > 64 &&
+				myTable_p->symTable[ctr][0] < 91 )&&
+		        myTable_p->symTable[ctr] != NULL)
+		{
+			ctr = ctr + 1;
+			ctr = ctr % Size;
+		}
+		strxfrm(myTable_p->symTable[ctr], id, Token_Max);
+		myTable_p->numEntries = myTable_p->numEntries + 1;
+	}
+	
+	else 
+	{
+		strxfrm(myTable_p->symTable[localHash], id, Token_Max);
+		myTable_p->numEntries = myTable_p->numEntries + 1;
+	}
+}    /* closing hashInsert function */
+
+/*---------------------------------------------------------------------------
+*    Function hashSearch
+*    --------------------
+*
+*        This function will compute the hash of the passed identifier.  If 
+*	 the identifier is already in the table at the hashed position, then 
+*	 this function will return -1.  If not, then this function will loop 
+*	 through the symbol table comparing the passed identifier and the contents
+*	 of the table at each index.  If there is a match, then this function will
+*	 return -1.  If not, then this function will return 1.
+*
+*	 id: character array containing a program identifier
+*	 myTable_p: pointer to the symbol table structure
+*
+*    Returns -1 if the identifier is found
+*	 Returns 1 if the identifier is not found
+*/
+
+int hashSearch(char id[], struct hashTable * myTable_p)
+{
+	int index = 0;
+	int comp;
+	int hash = getHash(id);
+	
+	if (myTable_p->symTable[hash] == id)
+		return -1;
+
+	while (index < Size)
+	{
+		comp = strcmp(id, myTable_p->symTable[index]);
+		if (comp == 0)
+			return -1;
+		else 
+			index = index + 1;
+	}
+	return 1;
+}
+
+/*---------------------------------------------------------------------------
+*    Function printTable
+*    --------------------
+*
+*        This function will print the contents of the symbol table 
+*	 including empty slots. 
+*
+*	 myTable_p: A pointer to the symbol Table structure
+*
+*    Prints the contents of the table until the maximum size is reached
+*/
+
+void printTable(struct hashTable * myTable_p)
+{
+	int index = 0;
+	char empty = '~';
+	
+	printf("\n\n\tSymbol Table \n");
+	printf(" ________________________\n");
+		
+	while(index < Size)
+	{
+		if (myTable_p->symTable[index][0] > 64 && 
+			myTable_p->symTable[index][0] < 91)
+			printf("|%+10.12s   |%10d| \n", myTable_p->symTable[index], index);
+		else 
+			printf("|%+10c   |%10d| \n", empty, index);
+		index = index + 1;
+	}
+	
+	printf("|_____________|__________|\n");
+}
+
+
+/*---------------------------------------------------------------------------
+*    Function buildId
+*    -----------------
+*
+*        This function will begin by finding the location of the colon
+*	 on the variable declaration line.  Then the line will be separated
+*	 into words delimited by a space or comma, and this function will 
+*	 attempt to insert the token word into the symbol table.
+*
+*	 progLine_p: A pointer to the program line structure
+*	 myTable_p: A pointer to the symbol Table structure
+*
+*    Returns: N/A 
+*/
+
+void buildId(struct Line * progLine_p, struct hashTable * myTable_p)
+{
+	char   word[13];
+	char * colon = strstr(progLine_p->line, ":");
+	char * chPtr = strtok(progLine_p->line, " ,");
+    int    index = 0;
+    
+	strcpy(word, chPtr);
+
+	while (chPtr != colon)
+	{
+		hashInsert(word, myTable_p);
+		chPtr = strtok(NULL, " ,.-+");
+		strncpy(word, chPtr, sizeof(word));
+		index = index + 1;
+	}
 }
